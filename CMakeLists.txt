@@ -15,4 +15,7 @@ set(PYBIND11_LTO_CXX_FLAGS "OFF" CACHE INTERNAL "")
 set(PYBIND11_LTO_LINKER_FLAGS "OFF" CACHE INTERNAL "")
 
 ###################### build ################################
-pybind11_add_module(aygalic main.cpp)
+pybind11_add_module(lib bindings.cpp)
+add_executable(nate original.cpp)
+target_include_directories(nate PRIVATE /u/sw/toolchains/gcc-glibc/11/pkgs/boost/1.76.0/include/boost/chrono/)
+#include_directories(SYSTEM $ENV{mkBoostInc})
