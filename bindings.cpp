@@ -6,7 +6,8 @@ namespace py = pybind11;
 
 using std::cout, std::endl;
 void parallel_hello(void){
-  MPI_Init(NULL, NULL);
+  //MPI_Init(NULL, NULL);
+  //we should delegate the mpi init and finalize to the pyside 
 
   int rank, size;
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -14,7 +15,7 @@ void parallel_hello(void){
 
   cout<<"hello from rank: "<<rank<<"/"<<size<<endl;
 
-  MPI_Finalize();
+  //MPI_Finalize();
 }
 
 PYBIND11_MODULE(lib, m) {

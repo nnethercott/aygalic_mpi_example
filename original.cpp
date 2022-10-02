@@ -21,13 +21,24 @@ int main(){
 
   //timing the function
   auto t1 = std::chrono::high_resolution_clock::now();
-  parallel_hello();
+  for(auto i = 0; i<100; i++){
+    parallel_hello();
+  }
   //testing_timer();
   auto t2 = std::chrono::high_resolution_clock::now();
   //end time
 
   auto diff = std::chrono::duration<double>(t2 - t1);
-  cout<<"COMPUTATION TIME: "<<1000*diff.count()<<endl;
+  double elapsed = 1000*diff.count();
+
+  //what if we reduced and took the maximal runtime
+  double max_elapsed;
+  MPI_Reduce(&elapsed, &max_elapsed, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+
+  //seems inneficient to call this again
+  int rank;
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  if(rank == 0) cout<<"MAX COMPUTATION TIME: "<<max_elapsed<<endl;
 
   MPI_Finalize();
 }
