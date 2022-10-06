@@ -2,3 +2,5 @@
 /CMakeFiles/*
 /.git/*
 Makefile
+pyfex_performance_test.py
+
