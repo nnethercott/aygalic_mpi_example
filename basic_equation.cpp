@@ -20,18 +20,20 @@
 #include <deal.II/lac/sparse_matrix.h>
 #include <deal.II/lac/sparse_direct.h>
 #include <deal.II/lac/vector.h>
-#include <deal.II/lac/trilinos_sparse_matrix.h>
 #include <deal.II/lac/full_matrix.h>
 #include <deal.II/lac/solver_control.h>
 #include <deal.II/lac/solver_gmres.h>
 #include <deal.II/lac/precondition.h>
+#include <deal.II/lac/trilinos_sparse_matrix.h>
+#include <deal.II/lac/trilinos_sparsity_pattern.h>
+#include <deal.II/lac/trilinos_solver.h>
+#include <deal.II/lac/trilinos_precondition.h>
 
 
-/*
 typedef dealii::TrilinosWrappers::MPI::Vector Vector;
 typedef dealii::TrilinosWrappers::SparseMatrix Matrix;
 using dealii::IndexSet;
-*/
+
 
 //sparse matrix
 void solver_example(){
@@ -93,8 +95,9 @@ void solver_example2(){
   sol.print(std::cout);
 }
 
-//setup framework for reading in a matrix(right now we just get the normal dealii matrix working)
-dealii::FullMatrix<double> matrix_read(std::string fname){
+//i think this example takes forever to run since we're not taking advantage of matrix sparsity in solver
+void solver_example3(){
+  std::string fname = "/root/lifex_mnt/examples/aygalic_mpi_example/matrices/lnsp_131.mtx";
   std::ifstream ifile(fname);
   if(!ifile){
     std::cerr<<"Matrix file does not exist or failed to open!\n";
@@ -120,7 +123,6 @@ dealii::FullMatrix<double> matrix_read(std::string fname){
     }
   }
 
-
   //now we read in the entries and reinit non zero entries (here we have a very sparse matrix)
   std::size_t i;
   std::size_t j;
@@ -132,15 +134,6 @@ dealii::FullMatrix<double> matrix_read(std::string fname){
     //we need to revert to 0-indexing
     A.set(i-1, j-1, val);
   }
-
-  return A;
-}
-
-//i think this example takes forever to run since we're not taking advantage of matrix sparsity in solver
-void solver_example3(){
-  std::string path = "/root/lifex_mnt/examples/aygalic_mpi_example/matrices/lnsp_131.mtx";
-  dealii::FullMatrix<double> A = matrix_read(path);
-  A.print(std::cout);
 
   //try to use a solver to get the vector we get from passing all 1's through
   dealii::Vector<double> rhs(A.n());
@@ -164,10 +157,10 @@ void solver_example3(){
   invrhs.print(std::cout); //should be all 1's
 }
 
-//ohhhhh baby FINALLY WORKS!! WE CAN PROBABLY UP THE SIZE OF THE MATRIX WE'VE IMPORTED
+
 void solver_example4(){
   //--------------------- populate matrix -----------------------
-  std::string path = "/root/lifex_mnt/examples/aygalic_mpi_example/matrices/lnsp_131.mtx";
+  std::string path = "/root/lifex_mnt/examples/aygalic_mpi_example/matrices/bcsstk20.mtx";
   std::ifstream ifile(path);
   if(!ifile){
     std::cerr<<"Matrix file does not exist or failed to open!\n";
@@ -238,6 +231,96 @@ void solver_example4(){
   b.print(std::cout);
 }
 
+void solver_example5(){
+  //--------------------- populate matrix -----------------------
+  std::string path = "/root/lifex_mnt/examples/aygalic_mpi_example/matrices/lnsp_131.mtx";
+  std::ifstream ifile(path);
+  if(!ifile){
+    std::cerr<<"Matrix file does not exist or failed to open!\n";
+    std::exit(1);
+  }
+
+  //use second line to get matrix dimensions, we assume we only use real general matrices
+  std::string line;
+  std::getline(ifile, line);
+  std::getline(ifile, line);
+
+  //now we should be at the line with nRows \t nCols \t nnz
+  std::istringstream iss(line);
+  int nrows, ncols, nonzero;
+  iss>>nrows>>ncols>>nonzero;
+
+  dealii::TrilinosWrappers::SparsityPattern sparsity(nrows,ncols,11);
+
+  //we should also store some stuff to not have to go through later
+  std::vector<std::tuple<int, int, double>> entries;
+
+  //now we read in the entries and reinit non zero entries (here we have a very sparse matrix)
+  int i,j;
+  double val;
+  while(getline(ifile, line)){
+    std::istringstream iss(line);
+    iss>>i>>j>>val;
+    entries.push_back(std::tuple<int, int, double>(i-1, j-1, val));
+
+    //we need to revert to 0-indexing
+    decltype(sparsity.n_rows()) i_ = i-1;
+    decltype(sparsity.n_rows()) j_ = j-1;
+
+    sparsity.add(i_,j_);
+  }
+  //sparsity.print(std::cout);
+
+  sparsity.compress();
+  Matrix A(sparsity);
+
+  //populate A
+  for(auto e: entries){
+    A.set(std::get<0>(e), std::get<1>(e), std::get<2>(e));
+  }
+
+  std::cout<<"("<<A.m()<<" "<<"," << A.n()<<")"<<std::endl;
+  std::cout<<"nnz elements: "<<A.n_nonzero_elements()<<std::endl;
+  std::cout<<"frobenius norm: "<<A.frobenius_norm()<<std::endl;
+
+
+  //--------------------- solve linear system -----------------------
+  //vector of 1's
+  IndexSet pp(A.n());
+  pp.add_range(0, A.n());
+
+  Vector rhs(pp, MPI_COMM_WORLD);
+  for(auto it=rhs.begin(); it!=rhs.end(); it++){
+    *(it) = 1;
+  }
+
+  Vector b(pp, MPI_COMM_WORLD);
+
+  A.vmult(b,rhs);
+  b.print(std::cout);
+
+/* //works with dealii block matrices, not the trilinos sparse
+  dealii::SparseDirectUMFPACK solver;
+  solver.initialize(A);
+  solver.solve(A, b);
+  b.print(std::cout);
+
+*/
+
+dealii::SolverControl solver_control(100000, 1e-10);
+dealii::TrilinosWrappers::SolverCG solver(solver_control);
+dealii::TrilinosWrappers::PreconditionJacobi preconditioner;
+preconditioner.initialize(A);
+
+Vector sol(pp, MPI_COMM_WORLD);
+solver.solve(A, sol, b, preconditioner);
+
+sol.print(std::cout);
+
+}
+
 int main(){
+  //MPI_Init(NULL, NULL);
   solver_example4();
+  //MPI_Finalize();
 }
